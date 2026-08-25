@@ -5,12 +5,9 @@
  */
 const { dataSource } = require('./data-source')
 
-/** 清空：被 FK 指著的表最後刪（GRADE 先刪，CLASS / SUBJECT 最後刪）。
- *  不用 clear()（TRUNCATE 會被 FK 擋）、不用 delete({})（TypeORM 拒絕空條件）。 */
+/** 清空：被 FK 指著的表最後刪（先刪 Grade，再 Student，最後 Class / Subject）。 */
 async function clearAll() {
-  const ORDER = [
-    // TODO: 按「你的」FK 依賴順序填 entity name（先刪 Grade，再 Student，最後 Class / Subject）
-  ]
+  const ORDER = ['Grade', 'Student', 'Class', 'Subject']
   for (const name of ORDER) {
     if (dataSource.hasMetadata(name)) {
       await dataSource.createQueryBuilder().delete().from(name).execute()
@@ -22,15 +19,35 @@ async function main() {
   await dataSource.initialize()
   await clearAll()
 
-  // ================================================================================
-  // TODO：依照任務內容的規格種資料（至少 2 班、2 科目、幾位學生、幾筆成績）
-  //   1. 先種 CLASS / SUBJECT
-  //   2. 再種 STUDENT（記得接上 class）
-  //   3. 最後種 GRADE（記得接上 student + subject）
-  //      關聯的接法：relation 屬性直接放前面存好的物件（TypeORM 會自動取出 id 填進外鍵），例如：
-  //      studentRepo.save({ name: '...', class: 班級物件 })
-  //      gradeRepo.save({ score: 95, student: 學生物件, subject: 科目物件 })
-  // ================================================================================
+  const classRepo = dataSource.getRepository('Class')
+  const subjectRepo = dataSource.getRepository('Subject')
+  const studentRepo = dataSource.getRepository('Student')
+  const gradeRepo = dataSource.getRepository('Grade')
+
+  // 1. 先種 CLASS / SUBJECT
+  const [classA, classB] = await classRepo.save([
+    { name: '一年一班' },
+    { name: '一年二班' },
+  ])
+  const [math, english] = await subjectRepo.save([
+    { name: '數學' },
+    { name: '英文' },
+  ])
+
+  // 2. 再種 STUDENT（接上 class）
+  const [amy, ben, cindy] = await studentRepo.save([
+    { name: '小美', class: classA },
+    { name: '阿賢', class: classA },
+    { name: '婷婷', class: classB },
+  ])
+
+  // 3. 最後種 GRADE（接上 student + subject）
+  await gradeRepo.save([
+    { score: 95, student: amy,   subject: math },
+    { score: 88, student: amy,   subject: english },
+    { score: 76, student: ben,   subject: math },
+    { score: 90, student: cindy, subject: english },
+  ])
 
   console.log('🌱 seed 完成')
   await dataSource.destroy()
